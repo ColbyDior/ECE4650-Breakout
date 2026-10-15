@@ -12,6 +12,9 @@ int main(void)
 {
     unsigned int row;
     unsigned int column;
+    unsigned int joystickValue;
+    unsigned int paddleX = 54;
+    unsigned int newPaddleX;
 
     Graphics_Rectangle paddle;
     Graphics_Rectangle brick;
@@ -28,6 +31,23 @@ int main(void)
 
     Crystalfontz128x128_Init();
     Initialize_Graphics(&g_sContext);
+
+    // Configure Joystick X-axis on P1.2 / A2
+
+    P1SEL0 |= BIT2;
+    P1SEL1 |= BIT2;
+
+    // Configure ADC for a single 12-bit conversion
+
+    ADC12CTL0 &= ~ADC12ENC;
+    ADC12CTL0 = ADC12SHT0_2 | ADC12ON;
+    ADC12CTL1 = ADC12SHP;
+    ADC12CTL2 = ADC12RES_2;
+    ADC12CTL3 = 0;
+
+    ADC12MCTL0 = ADC12INCH_2;
+
+    ADC12CTL0 |= ADC12ENC;
 
     Graphics_setBackgroundColor(
         &g_sContext, GRAPHICS_COLOR_BLACK);
@@ -84,6 +104,56 @@ int main(void)
 
     while (1)
     {
-        // Movement will be added in the next step.
+        // Read the Joystick
+
+        ADC12CTL0 |= ADC12SC;
+
+        while (ADC12CTL1 & ADC12BUSY)
+        {
+            // Wait for the conversion to finish.
+        }
+
+        joystickValue = ADC12MEM0;
+
+        // Convert ADC range 0-4095 to paddle position 0-108.
+        // Use 32-bit multiplication to prevent overflow.
+
+        newPaddleX =
+            (unsigned int)(((uint32_t)joystickValue * 108) / 4095);
+
+        if (newPaddleX != paddleX)
+        {
+            // Erase the Previous Paddle and Ball
+
+            Graphics_setForegroundColor(
+                &g_sContext, GRAPHICS_COLOR_BLACK);
+
+            Graphics_fillRectangle(&g_sContext, &paddle);
+
+            Graphics_fillCircle(
+                &g_sContext, paddleX + 10, 105, 2);
+
+            // Update the Paddle Position
+
+            paddleX = newPaddleX;
+
+            paddle.xMin = paddleX;
+            paddle.xMax = paddleX + 19;
+
+            // Draw the Paddle and Ball at the New Position
+
+            Graphics_setForegroundColor(
+                &g_sContext, GRAPHICS_COLOR_WHITE);
+
+            Graphics_fillRectangle(&g_sContext, &paddle);
+
+            Graphics_fillCircle(
+                &g_sContext, paddleX + 10, 105, 2);
+        }
+
+        // Temporary pacing for this joystick test.
+        // Timer-controlled updates will come next.
+
+        __delay_cycles(10000);
     }
 }
