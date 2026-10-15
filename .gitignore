@@ -1,0 +1,10 @@
+# CCS generated build folders
+Debug/
+Release/
+
+# Workspace data
+.metadata/
+
+# Generated object and dependency files
+*.obj
+*.d
