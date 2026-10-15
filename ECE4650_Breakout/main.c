@@ -15,6 +15,8 @@ int main(void)
     unsigned int joystickValue;
     unsigned int paddleX = 54;
     unsigned int newPaddleX;
+    unsigned char launched = 0;
+    unsigned char previousLaunched = 2;
 
     Graphics_Rectangle paddle;
     Graphics_Rectangle brick;
@@ -36,6 +38,16 @@ int main(void)
 
     P1SEL0 |= BIT2;
     P1SEL1 |= BIT2;
+
+    // Configure BoosterPack Buttons
+    // S1 = P4.3, S2 = P4.2
+
+    P4SEL0 &= ~(BIT3 | BIT2);
+    P4SEL1 &= ~(BIT3 | BIT2);
+
+    P4DIR &= ~(BIT3 | BIT2);
+    P4OUT |= BIT3 | BIT2;
+    P4REN |= BIT3 | BIT2;
 
     // Configure ADC for a single 12-bit conversion
 
@@ -104,6 +116,51 @@ int main(void)
 
     while (1)
     {
+        // Check BoosterPack Buttons
+        // Reset takes priority if both buttons are pressed.
+
+        if (!(P4IN & BIT2))
+        {
+            launched = 0;
+        }
+        else if (!(P4IN & BIT3))
+        {
+            launched = 1;
+        }
+
+        // Update the Status Only When It Changes
+
+        if (launched != previousLaunched)
+        {
+            Graphics_setForegroundColor(
+                &g_sContext, GRAPHICS_COLOR_WHITE);
+
+            if (launched == 1)
+            {
+                Graphics_drawStringCentered(
+                    &g_sContext,
+                    (int8_t *)"LAUNCH",
+                    AUTO_STRING_LENGTH,
+                    64,
+                    80,
+                    OPAQUE_TEXT
+                );
+            }
+            else
+            {
+                Graphics_drawStringCentered(
+                    &g_sContext,
+                    (int8_t *)"READY ",
+                    AUTO_STRING_LENGTH,
+                    64,
+                    80,
+                    OPAQUE_TEXT
+                );
+            }
+
+            previousLaunched = launched;
+        }
+
         // Read the Joystick
 
         ADC12CTL0 |= ADC12SC;
