@@ -10,12 +10,16 @@ volatile unsigned char updateGame = 0;
 
 Graphics_Rectangle bricks[15];
 unsigned char brickActive[15];
+
 unsigned int bricksRemaining = 15;
+unsigned int livesRemaining = 3;
 
 // Function Prototypes
 
 void ResetBoard(void);
 void DrawBrickCount(void);
+void DrawLives(void);
+void DrawEndMessage(unsigned char won);
 
 // Main Function
 
@@ -36,6 +40,7 @@ int main(void)
 
     unsigned char launched = 0;
     unsigned char gameWon = 0;
+    unsigned char gameOver = 0;
 
     unsigned char launchPressed;
     unsigned char resetPressed;
@@ -62,8 +67,7 @@ int main(void)
     Crystalfontz128x128_Init();
     Initialize_Graphics(&g_sContext);
 
-    Graphics_setBackgroundColor(
-        &g_sContext, GRAPHICS_COLOR_BLACK);
+    Graphics_setBackgroundColor(&g_sContext, GRAPHICS_COLOR_BLACK);
 
     // Configure Joystick X-axis on P1.2 / A2
 
@@ -97,9 +101,7 @@ int main(void)
     paddle.yMin = 110;
     paddle.yMax = 114;
 
-    Graphics_setForegroundColor(
-        &g_sContext, GRAPHICS_COLOR_WHITE);
-
+    Graphics_setForegroundColor(&g_sContext, GRAPHICS_COLOR_WHITE);
     Graphics_fillRectangle(&g_sContext, &paddle);
     Graphics_fillCircle(&g_sContext, ballX, ballY, 2);
 
@@ -135,14 +137,11 @@ int main(void)
 
         // Erase the Previous Paddle and Ball
 
-        Graphics_setForegroundColor(
-            &g_sContext, GRAPHICS_COLOR_BLACK);
-
+        Graphics_setForegroundColor(&g_sContext, GRAPHICS_COLOR_BLACK);
         Graphics_fillRectangle(&g_sContext, &paddle);
         Graphics_fillCircle(&g_sContext, ballX, ballY, 2);
 
         // Convert the Joystick Reading to a Target Position
-        // Calibrated for the Measured Joystick Range
 
         if (joystickValue <= 700)
         {
@@ -154,11 +153,7 @@ int main(void)
         }
         else
         {
-            targetPaddleX =
-                (unsigned int)(
-                    ((uint32_t)(joystickValue - 700) * 108)
-                    / 2430
-                );
+            targetPaddleX = (unsigned int)(((uint32_t)(joystickValue - 700) * 108) / 2430);
         }
 
         // Limit Paddle Movement to 4 Pixels Per Update
@@ -212,6 +207,7 @@ int main(void)
             {
                 launched = 0;
                 gameWon = 0;
+                gameOver = 0;
 
                 velocityX = 1;
                 velocityY = -2;
@@ -219,10 +215,7 @@ int main(void)
                 ResetBoard();
             }
         }
-        else if (launchPressed == 1 &&
-                 previousLaunchPressed == 0 &&
-                 launched == 0 &&
-                 gameWon == 0)
+        else if (launchPressed == 1 && previousLaunchPressed == 0 && launched == 0 && gameWon == 0 && gameOver == 0)
         {
             ballX = paddleX + 10;
             ballY = 105;
@@ -256,10 +249,11 @@ int main(void)
             }
 
             // Top Wall Collision
+            // Keep the Ball Below the Counter Text
 
-            if (nextBallY < 2)
+            if (nextBallY < 10)
             {
-                nextBallY = 2;
+                nextBallY = 10;
                 velocityY = -velocityY;
             }
 
@@ -272,24 +266,20 @@ int main(void)
                     continue;
                 }
 
-                if (nextBallX + 2 >= bricks[i].xMin &&
-                    nextBallX - 2 <= bricks[i].xMax &&
-                    nextBallY + 2 >= bricks[i].yMin &&
-                    nextBallY - 2 <= bricks[i].yMax)
+                if (nextBallX + 2 >= bricks[i].xMin && nextBallX - 2 <= bricks[i].xMax &&
+                    nextBallY + 2 >= bricks[i].yMin && nextBallY - 2 <= bricks[i].yMax)
                 {
                     // Determine Which Side the Ball Came From
 
                     hitHorizontal = 0;
                     hitVertical = 0;
 
-                    if (ballX + 2 < bricks[i].xMin ||
-                        ballX - 2 > bricks[i].xMax)
+                    if (ballX + 2 < bricks[i].xMin || ballX - 2 > bricks[i].xMax)
                     {
                         hitHorizontal = 1;
                     }
 
-                    if (ballY + 2 < bricks[i].yMin ||
-                        ballY - 2 > bricks[i].yMax)
+                    if (ballY + 2 < bricks[i].yMin || ballY - 2 > bricks[i].yMax)
                     {
                         hitVertical = 1;
                     }
@@ -308,14 +298,12 @@ int main(void)
 
                     // Fallback for an Unexpected Overlap
 
-                    if (hitHorizontal == 0 &&
-                        hitVertical == 0)
+                    if (hitHorizontal == 0 && hitVertical == 0)
                     {
                         velocityY = -velocityY;
                     }
 
                     // Keep the Ball at Its Previous Safe Position
-                    // It Moves Away on the Next Update
 
                     nextBallX = ballX;
                     nextBallY = ballY;
@@ -325,13 +313,8 @@ int main(void)
                     brickActive[i] = 0;
                     bricksRemaining--;
 
-                    Graphics_setForegroundColor(
-                        &g_sContext, GRAPHICS_COLOR_BLACK);
-
-                    Graphics_fillRectangle(
-                        &g_sContext, &bricks[i]);
-
-                    // Update Only the Two Counter Digits
+                    Graphics_setForegroundColor(&g_sContext, GRAPHICS_COLOR_BLACK);
+                    Graphics_fillRectangle(&g_sContext, &bricks[i]);
 
                     DrawBrickCount();
 
@@ -342,26 +325,7 @@ int main(void)
                         launched = 0;
                         gameWon = 1;
 
-                        Graphics_setForegroundColor(
-                            &g_sContext, GRAPHICS_COLOR_WHITE);
-
-                        Graphics_drawStringCentered(
-                            &g_sContext,
-                            (int8_t *)"YOU WIN",
-                            AUTO_STRING_LENGTH,
-                            64,
-                            65,
-                            OPAQUE_TEXT
-                        );
-
-                        Graphics_drawStringCentered(
-                            &g_sContext,
-                            (int8_t *)"S2 TO RESET",
-                            AUTO_STRING_LENGTH,
-                            64,
-                            80,
-                            OPAQUE_TEXT
-                        );
+                        DrawEndMessage(1);
                     }
 
                     // Handle One Brick Per Update
@@ -372,28 +336,36 @@ int main(void)
 
             // Paddle Collision
 
-            if (velocityY > 0 &&
-                ballY + 2 < paddle.yMin &&
-                nextBallY + 2 >= paddle.yMin &&
-                nextBallX + 2 >= paddle.xMin &&
-                nextBallX - 2 <= paddle.xMax)
+            if (velocityY > 0 && ballY + 2 < paddle.yMin && nextBallY + 2 >= paddle.yMin &&
+                nextBallX + 2 >= paddle.xMin && nextBallX - 2 <= paddle.xMax)
             {
                 nextBallY = paddle.yMin - 3;
                 velocityY = -velocityY;
             }
 
-            // Missing the Paddle Resets the Whole Board
-            // Reset Before the Ball Reaches the Counter Text
+            // Missing the Paddle Removes One Life
+            // Keep the Remaining Bricks
 
             if (nextBallY + 2 > paddle.yMax)
             {
                 launched = 0;
-                gameWon = 0;
 
                 velocityX = 1;
                 velocityY = -2;
 
-                ResetBoard();
+                if (livesRemaining > 0)
+                {
+                    livesRemaining--;
+                }
+
+                DrawLives();
+
+                if (livesRemaining == 0)
+                {
+                    gameOver = 1;
+
+                    DrawEndMessage(0);
+                }
             }
             else
             {
@@ -402,7 +374,7 @@ int main(void)
             }
         }
 
-        // Hold the Ball Above the Paddle Until Launch
+        // Position the Ball Above the Paddle While Waiting
 
         if (launched == 0)
         {
@@ -410,17 +382,21 @@ int main(void)
             ballY = 105;
         }
 
-        // Draw the Updated Paddle and Ball
+        // Draw the Paddle
 
-        Graphics_setForegroundColor(
-            &g_sContext, GRAPHICS_COLOR_WHITE);
-
+        Graphics_setForegroundColor(&g_sContext, GRAPHICS_COLOR_WHITE);
         Graphics_fillRectangle(&g_sContext, &paddle);
-        Graphics_fillCircle(&g_sContext, ballX, ballY, 2);
+
+        // Show the Ball Only While the Game Is Active
+
+        if (gameWon == 0 && gameOver == 0)
+        {
+            Graphics_fillCircle(&g_sContext, ballX, ballY, 2);
+        }
     }
 }
 
-// Reset and Draw All Bricks
+// Reset the Bricks and Lives
 
 void ResetBoard(void)
 {
@@ -428,29 +404,25 @@ void ResetBoard(void)
     unsigned int column;
     unsigned int index;
 
-    Graphics_setBackgroundColor(
-        &g_sContext, GRAPHICS_COLOR_BLACK);
-
+    Graphics_setBackgroundColor(&g_sContext, GRAPHICS_COLOR_BLACK);
     Graphics_clearDisplay(&g_sContext);
 
     bricksRemaining = 15;
+    livesRemaining = 3;
 
     for (row = 0; row < 3; row++)
     {
         if (row == 0)
         {
-            Graphics_setForegroundColor(
-                &g_sContext, GRAPHICS_COLOR_RED);
+            Graphics_setForegroundColor(&g_sContext, GRAPHICS_COLOR_RED);
         }
         else if (row == 1)
         {
-            Graphics_setForegroundColor(
-                &g_sContext, GRAPHICS_COLOR_GREEN);
+            Graphics_setForegroundColor(&g_sContext, GRAPHICS_COLOR_GREEN);
         }
         else
         {
-            Graphics_setForegroundColor(
-                &g_sContext, GRAPHICS_COLOR_BLUE);
+            Graphics_setForegroundColor(&g_sContext, GRAPHICS_COLOR_BLUE);
         }
 
         for (column = 0; column < 5; column++)
@@ -465,29 +437,22 @@ void ResetBoard(void)
 
             brickActive[index] = 1;
 
-            Graphics_fillRectangle(
-                &g_sContext, &bricks[index]);
+            Graphics_fillRectangle(&g_sContext, &bricks[index]);
         }
     }
 
-    // Draw the Counter Label Once Per Reset
+    // Draw the Labels Once Per Reset
 
-    Graphics_setForegroundColor(
-        &g_sContext, GRAPHICS_COLOR_WHITE);
+    Graphics_setForegroundColor(&g_sContext, GRAPHICS_COLOR_WHITE);
 
-    Graphics_drawString(
-        &g_sContext,
-        (int8_t *)"Bricks:",
-        AUTO_STRING_LENGTH,
-        34,
-        119,
-        OPAQUE_TEXT
-    );
+    Graphics_drawString(&g_sContext, (int8_t *)"Bricks:", AUTO_STRING_LENGTH, 34, 0, OPAQUE_TEXT);
+    Graphics_drawString(&g_sContext, (int8_t *)"Lives:", AUTO_STRING_LENGTH, 34, 119, OPAQUE_TEXT);
 
     DrawBrickCount();
+    DrawLives();
 }
 
-// Update Only the Two Counter Digits
+// Update Only the Two Counter Digits at the Top
 
 void DrawBrickCount(void)
 {
@@ -497,17 +462,47 @@ void DrawBrickCount(void)
     countText[1] = '0' + bricksRemaining % 10;
     countText[2] = '\0';
 
-    Graphics_setForegroundColor(
-        &g_sContext, GRAPHICS_COLOR_WHITE);
+    Graphics_setForegroundColor(&g_sContext, GRAPHICS_COLOR_WHITE);
+    Graphics_drawString(&g_sContext, (int8_t *)countText, AUTO_STRING_LENGTH, 82, 0, OPAQUE_TEXT);
+}
 
-    Graphics_drawString(
-        &g_sContext,
-        (int8_t *)countText,
-        AUTO_STRING_LENGTH,
-        82,
-        119,
-        OPAQUE_TEXT
-    );
+// Display One Dot for Each Remaining Life
+
+void DrawLives(void)
+{
+    unsigned int i;
+
+    for (i = 0; i < 3; i++)
+    {
+        if (i < livesRemaining)
+        {
+            Graphics_setForegroundColor(&g_sContext, GRAPHICS_COLOR_WHITE);
+        }
+        else
+        {
+            Graphics_setForegroundColor(&g_sContext, GRAPHICS_COLOR_BLACK);
+        }
+
+        Graphics_fillCircle(&g_sContext, 77 + i * 8, 123, 2);
+    }
+}
+
+// Display the Win or Game Over Message
+
+void DrawEndMessage(unsigned char won)
+{
+    Graphics_setForegroundColor(&g_sContext, GRAPHICS_COLOR_WHITE);
+
+    if (won == 1)
+    {
+        Graphics_drawStringCentered(&g_sContext, (int8_t *)"YOU WIN", AUTO_STRING_LENGTH, 64, 65, OPAQUE_TEXT);
+    }
+    else
+    {
+        Graphics_drawStringCentered(&g_sContext, (int8_t *)"GAME OVER", AUTO_STRING_LENGTH, 64, 65, OPAQUE_TEXT);
+    }
+
+    Graphics_drawStringCentered(&g_sContext, (int8_t *)"S2 TO RESET", AUTO_STRING_LENGTH, 64, 80, OPAQUE_TEXT);
 }
 
 // Timer_A0 Interrupt
