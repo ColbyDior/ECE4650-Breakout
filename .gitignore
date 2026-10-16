@@ -1,10 +1,13 @@
-# CCS generated build folders
+# Generated build folders
 Debug/
 Release/
 
-# Workspace data
+# Workspace and generated debug files
 .metadata/
+.launches/
+.config/
+.xdchelp
 
-# Generated object and dependency files
+# Intermediate build files
 *.obj
 *.d
