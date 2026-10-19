@@ -2,9 +2,9 @@
 #include <stdint.h>
 #include "graphics.h"
 #include "sound.h"
+#include "levels.h"
 
 // Game settings: number of bricks, starting lives, and maximum paddle movement per update
-#define BRICK_COUNT 15
 #define STARTING_LIVES 3
 #define PADDLE_STEP 6
 
@@ -17,12 +17,15 @@ unsigned char brickActive[BRICK_COUNT];
 volatile unsigned char updateGame = 0;
 unsigned int bricksRemaining = BRICK_COUNT;
 unsigned int livesRemaining = STARTING_LIVES;
+unsigned int currentLevel = 0;
+unsigned char levelComplete = 0;
 
 // Functions for resetting the board and updating the display
 void ResetBoard(void);
 void DrawBrickCount(void);
 void DrawLives(void);
 void DrawEndMessage(unsigned char won);
+void LoadLevel(void);
 
 int main(void)
 {
@@ -107,6 +110,19 @@ int main(void)
         // Run one game update when the timer sets the update flag
         if (!updateGame) continue;
         updateGame = 0;
+
+        // Load the next level and return the ball to the paddle while preserving lives
+        if (levelComplete)
+        {
+            levelComplete = 0;
+            currentLevel++;
+            launched = 0;
+            velocityX = 1;
+            velocityY = -2;
+            ballX = paddleX + 10;
+            ballY = 105;
+            LoadLevel();
+        }
 
         // Start an ADC conversion and read the joystick after it finishes
         ADC12CTL0 |= ADC12SC;
@@ -229,13 +245,22 @@ int main(void)
                     DrawBrickCount();
                     PlayBrickSound();
 
-                    // End the round and play the victory song when all bricks are gone
+                    // Advance after clearing a level; finish the game after the final layout
                     if (bricksRemaining == 0)
                     {
                         launched = 0;
-                        gameWon = 1;
-                        DrawEndMessage(1);
-                        PlayVictorySong();
+
+                        if (currentLevel + 1 < NUM_LEVELS)
+                        {
+                            levelComplete = 1;
+                            PlayVictorySong();
+                        }
+                        else
+                        {
+                            gameWon = 1;
+                            DrawEndMessage(1);
+                            PlayVictorySong();
+                        }
                     }
 
                     // Handle only one brick collision per update
@@ -290,45 +315,62 @@ int main(void)
     }
 }
 
-// Stop playback, restore the counters, and redraw the complete starting board
+// Start a new game at level 1 with all lives restored
 void ResetBoard(void)
+{
+    StopSound();
+    currentLevel = 0;
+    levelComplete = 0;
+    livesRemaining = STARTING_LIVES;
+    LoadLevel();
+}
+
+// Build the selected layout and draw its brick count, level number, and lives
+void LoadLevel(void)
 {
     unsigned int row;
     unsigned int column;
     unsigned int index;
+    char levelText[] = "L1/4";
 
-    StopSound();
-
-    bricksRemaining = BRICK_COUNT;
-    livesRemaining = STARTING_LIVES;
+    bricksRemaining = 0;
 
     Graphics_setBackgroundColor(&g_sContext, GRAPHICS_COLOR_BLACK);
     Graphics_clearDisplay(&g_sContext);
 
-    // Create three rows of five bricks, with a different color for each row
-    for (row = 0; row < 3; row++)
+    // Use a different color for each row and keep all bricks above the paddle
+    for (row = 0; row < LEVEL_ROWS; row++)
     {
         if (row == 0) Graphics_setForegroundColor(&g_sContext, GRAPHICS_COLOR_RED);
         else if (row == 1) Graphics_setForegroundColor(&g_sContext, GRAPHICS_COLOR_GREEN);
-        else Graphics_setForegroundColor(&g_sContext, GRAPHICS_COLOR_BLUE);
+        else if (row == 2) Graphics_setForegroundColor(&g_sContext, GRAPHICS_COLOR_BLUE);
+        else if (row == 3) Graphics_setForegroundColor(&g_sContext, GRAPHICS_COLOR_YELLOW);
+        else Graphics_setForegroundColor(&g_sContext, GRAPHICS_COLOR_MAGENTA);
 
-        for (column = 0; column < 5; column++)
+        for (column = 0; column < LEVEL_COLUMNS; column++)
         {
-            index = row * 5 + column;
-
+            index = row * LEVEL_COLUMNS + column;
             bricks[index].xMin = 5 + column * 24;
             bricks[index].xMax = bricks[index].xMin + 21;
             bricks[index].yMin = 10 + row * 12;
             bricks[index].yMax = bricks[index].yMin + 8;
-            brickActive[index] = 1;
+            brickActive[index] = levelLayouts[currentLevel][row][column];
 
-            Graphics_fillRectangle(&g_sContext, &bricks[index]);
+            if (brickActive[index])
+            {
+                bricksRemaining++;
+                Graphics_fillRectangle(&g_sContext, &bricks[index]);
+            }
         }
     }
 
-    // Place the brick counter above the board and the life indicators below it
+    // Keep the brick counter centered at the top and show level progress at bottom left
+    levelText[1] = '1' + currentLevel;
+    levelText[3] = '0' + NUM_LEVELS;
+
     Graphics_setForegroundColor(&g_sContext, GRAPHICS_COLOR_WHITE);
     Graphics_drawString(&g_sContext, (int8_t *)"Bricks:", AUTO_STRING_LENGTH, 34, 0, OPAQUE_TEXT);
+    Graphics_drawString(&g_sContext, (int8_t *)levelText, AUTO_STRING_LENGTH, 2, 119, OPAQUE_TEXT);
     Graphics_drawString(&g_sContext, (int8_t *)"Lives:", AUTO_STRING_LENGTH, 34, 119, OPAQUE_TEXT);
 
     DrawBrickCount();
