@@ -60,7 +60,6 @@ int main(void)
     WDTCTL = WDTPW | WDTHOLD;
     PM5CTL0 &= ~LOCKLPM5;
 
-    // Set the SMCLK divider to /1, then lock the clock registers
     CSCTL0 = CSKEY;
     CSCTL3 &= ~(BIT4 | BIT5 | BIT6);
     CSCTL0_H = 0;
@@ -77,7 +76,7 @@ int main(void)
     // Configure ADC12 for individual 12-bit conversions of the joystick input
     ADC12CTL0 &= ~ADC12ENC;
     ADC12CTL0 = ADC12SHT0_2 | ADC12ON;
-    ADC12CTL1 = ADC12SHP;
+    ADC12CTL1 = ADC12SHP | ADC12SSEL_0;
     ADC12CTL2 = ADC12RES_2;
     ADC12CTL3 = 0;
     ADC12MCTL0 = ADC12INCH_2;
@@ -111,8 +110,8 @@ int main(void)
         if (!updateGame) continue;
         updateGame = 0;
 
-        // Load the next level and return the ball to the paddle while preserving lives
-        if (levelComplete)
+        // Wait for the victory jingle, then load the next level.
+        if (levelComplete && !SoundIsPlaying())
         {
             levelComplete = 0;
             currentLevel++;
@@ -123,6 +122,8 @@ int main(void)
             ballY = 105;
             LoadLevel();
         }
+
+        if (levelComplete) continue;
 
         // Start an ADC conversion and read the joystick after it finishes
         ADC12CTL0 |= ADC12SC;
@@ -186,6 +187,7 @@ int main(void)
             velocityX = 1;
             velocityY = -2;
             launched = 1;
+            PlayLevelMusic();
         }
 
         // Remember button states so holding a button does not repeat its action
@@ -253,7 +255,7 @@ int main(void)
                         if (currentLevel + 1 < NUM_LEVELS)
                         {
                             levelComplete = 1;
-                            PlayVictorySong();
+                            PlayLevelVictorySong();
                         }
                         else
                         {
@@ -281,6 +283,8 @@ int main(void)
                 launched = 0;
                 velocityX = 1;
                 velocityY = -2;
+
+                StopSound();
 
                 if (livesRemaining > 0) livesRemaining--;
                 DrawLives();

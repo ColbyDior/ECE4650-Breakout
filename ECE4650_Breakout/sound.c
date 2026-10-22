@@ -1,18 +1,8 @@
-/*
- * sound.c
- *
- *  Created on: Oct 15, 2026
- *      Author: Colby
- */
-
 #include <msp430fr5994.h>
 #include <stdint.h>
 #include "sound.h"
 
-// Simplified Ride of the Valkyries Motif
-// Frequencies in Hz; durations in approximately 10 ms units
-// A frequency of zero represents a rest.
-
+// Ride of the Valkyries: final victory only.
 static const unsigned int victoryNotes[] =
 {
     370, 494, 587, 740, 587, 740, 0,
@@ -23,6 +13,7 @@ static const unsigned int victoryNotes[] =
     587, 494, 370, 494
 };
 
+// Durations are approximately 10 ms per tick.
 static const unsigned char victoryDurations[] =
 {
     12, 24, 12, 36, 12, 48, 12,
@@ -33,33 +24,73 @@ static const unsigned char victoryDurations[] =
     24, 24, 24, 72
 };
 
-#define VICTORY_NOTE_COUNT (sizeof(victoryNotes) / sizeof(victoryNotes[0]))
+// Repeating gameplay tune.
+static const unsigned int levelNotes[] =
+{
+    262, 330, 392, 330, 294, 349, 440, 349,
+    330, 392, 494, 392, 349, 440, 523, 392
+};
 
-// Sound Modes
-// 0 = Silent, 1 = Brick Beep, 2 = Victory Song
+static const unsigned char levelDurations[] =
+{
+    14, 14, 14, 14, 14, 14, 14, 14,
+    14, 14, 14, 14, 14, 14, 28, 14
+};
+
+// Short victory jingle for regular levels.
+static const unsigned int clearNotes[] =
+{
+    523, 659, 784, 1047
+};
+
+static const unsigned char clearDurations[] =
+{
+    12, 12, 12, 72
+};
+
+#define VICTORY_NOTE_COUNT \
+    (sizeof(victoryNotes) / sizeof(victoryNotes[0]))
+
+#define LEVEL_NOTE_COUNT \
+    (sizeof(levelNotes) / sizeof(levelNotes[0]))
+
+#define CLEAR_NOTE_COUNT \
+    (sizeof(clearNotes) / sizeof(clearNotes[0]))
+
+#define SILENT         0
+#define LEVEL_MUSIC    1
+#define LEVEL_VICTORY  2
+#define FINAL_VICTORY  3
 
 static volatile unsigned char soundReady = 0;
-static volatile unsigned char soundMode = 0;
+static volatile unsigned char soundMode = SILENT;
 static volatile unsigned char noteIndex = 0;
 static volatile unsigned char noteGap = 0;
+static volatile unsigned char brickTicks = 0;
 static volatile unsigned int ticksRemaining = 0;
 
-// Private Function Prototypes
+static const unsigned int * volatile activeNotes = 0;
+static const unsigned char * volatile activeDurations = 0;
+static volatile unsigned int activeCount = 0;
 
 static void SetTone(unsigned int frequency);
 static void SilenceBuzzer(void);
 
-// Initialize the Buzzer and Sound Timers
+static void StartSong(
+    unsigned char mode,
+    const unsigned int *notes,
+    const unsigned char *durations,
+    unsigned int count
+);
 
 unsigned char SoundInit(void)
 {
     unsigned int attempts;
 
     soundReady = 0;
-    soundMode = 0;
+    soundMode = SILENT;
 
-    // Start With the Buzzer Pin Low
-
+    // Start with the buzzer pin low.
     P3SEL0 &= ~BIT7;
     P3SEL1 &= ~BIT7;
     P3OUT &= ~BIT7;
@@ -69,9 +100,8 @@ unsigned char SoundInit(void)
     TB0EX0 = 0;
     TB0CCTL6 = 0;
 
-    // Configure the LaunchPad's Low-Frequency Crystal
-    // Preserve the Existing MCLK and SMCLK Settings
-
+    // Configure the low-frequency crystal.
+    // Preserve the existing MCLK and SMCLK settings.
     PJSEL0 |= BIT4 | BIT5;
     PJSEL1 &= ~(BIT4 | BIT5);
 
@@ -81,8 +111,7 @@ unsigned char SoundInit(void)
     CSCTL4 |= LFXTDRIVE_3;
     CSCTL4 &= ~LFXTOFF;
 
-    // Bounded Startup Wait So a Crystal Fault Cannot Hang the Game
-
+    // Limit startup time so a crystal fault cannot hang the game.
     for (attempts = 0; attempts < 50000; attempts++)
     {
         CSCTL5 &= ~LFXTOFFG;
@@ -99,14 +128,12 @@ unsigned char SoundInit(void)
 
     CSCTL0_H = 0;
 
-    if (soundReady == 0)
+    if (!soundReady)
     {
         return 0;
     }
 
-    // Timer_A1 Handles Note Durations
-    // 328 ACLK Counts Is Approximately 10 ms
-
+    // Timer_A1 advances sound approximately every 10 ms.
     TA1CTL = MC__STOP | TACLR;
     TA1EX0 = 0;
     TA1CCR0 = 327;
@@ -115,8 +142,6 @@ unsigned char SoundInit(void)
 
     return 1;
 }
-
-// Generate a Tone With Hardware PWM
 
 static void SetTone(unsigned int frequency)
 {
@@ -132,7 +157,7 @@ static void SetTone(unsigned int frequency)
     period = (32768UL + frequency / 2) / frequency;
 
     TB0CCR0 = period - 1;
-    TB0CCR6 = period / 2;
+    TB0CCR6 = period / 30;
     TB0CCTL6 = OUTMOD_7;
 
     P3SEL1 &= ~BIT7;
@@ -140,8 +165,6 @@ static void SetTone(unsigned int frequency)
 
     TB0CTL = TBSSEL__ACLK | MC__UP | TBCLR;
 }
-
-// Stop PWM and Hold the Buzzer Pin Low
 
 static void SilenceBuzzer(void)
 {
@@ -153,7 +176,73 @@ static void SilenceBuzzer(void)
     P3OUT &= ~BIT7;
 }
 
-// Play a Short Brick-Hit Beep
+static void StartSong(
+    unsigned char mode,
+    const unsigned int *notes,
+    const unsigned char *durations,
+    unsigned int count
+)
+{
+    unsigned int interruptState;
+
+    interruptState = __get_SR_register() & GIE;
+    __disable_interrupt();
+
+    if (soundReady)
+    {
+        activeNotes = notes;
+        activeDurations = durations;
+        activeCount = count;
+
+        noteIndex = 0;
+        noteGap = 0;
+        brickTicks = 0;
+        ticksRemaining = durations[0];
+        soundMode = mode;
+
+        SetTone(notes[0]);
+    }
+
+    if (interruptState)
+    {
+        __enable_interrupt();
+    }
+}
+
+void PlayLevelMusic(void)
+{
+    StartSong(
+        LEVEL_MUSIC,
+        levelNotes,
+        levelDurations,
+        LEVEL_NOTE_COUNT
+    );
+}
+
+void PlayLevelVictorySong(void)
+{
+    StartSong(
+        LEVEL_VICTORY,
+        clearNotes,
+        clearDurations,
+        CLEAR_NOTE_COUNT
+    );
+}
+
+void PlayVictorySong(void)
+{
+    StartSong(
+        FINAL_VICTORY,
+        victoryNotes,
+        victoryDurations,
+        VICTORY_NOTE_COUNT
+    );
+}
+
+unsigned char SoundIsPlaying(void)
+{
+    return soundMode != SILENT || brickTicks != 0;
+}
 
 void PlayBrickSound(void)
 {
@@ -162,47 +251,18 @@ void PlayBrickSound(void)
     interruptState = __get_SR_register() & GIE;
     __disable_interrupt();
 
-    if (soundReady == 1 && soundMode != 2)
+    if (soundReady &&
+        (soundMode == SILENT || soundMode == LEVEL_MUSIC))
     {
-        soundMode = 1;
-        ticksRemaining = 6;
-        noteGap = 0;
-
+        brickTicks = 6;
         SetTone(1500);
     }
 
-    if (interruptState != 0)
+    if (interruptState)
     {
         __enable_interrupt();
     }
 }
-
-// Start the Victory Melody
-
-void PlayVictorySong(void)
-{
-    unsigned int interruptState;
-
-    interruptState = __get_SR_register() & GIE;
-    __disable_interrupt();
-
-    if (soundReady == 1)
-    {
-        soundMode = 2;
-        noteIndex = 0;
-        noteGap = 0;
-        ticksRemaining = victoryDurations[0];
-
-        SetTone(victoryNotes[0]);
-    }
-
-    if (interruptState != 0)
-    {
-        __enable_interrupt();
-    }
-}
-
-// Cancel Any Sound
 
 void StopSound(void)
 {
@@ -211,50 +271,59 @@ void StopSound(void)
     interruptState = __get_SR_register() & GIE;
     __disable_interrupt();
 
-    soundMode = 0;
+    soundMode = SILENT;
+    brickTicks = 0;
     ticksRemaining = 0;
     noteGap = 0;
 
     SilenceBuzzer();
 
-    if (interruptState != 0)
+    if (interruptState)
     {
         __enable_interrupt();
     }
 }
 
-// Advance Sound Without Delays in the Game Loop
-
 #pragma vector = TIMER1_A0_VECTOR
 __interrupt void SoundTimer_ISR(void)
 {
-    if (soundMode == 0)
+    // Briefly interrupt music for brick hits.
+    if (brickTicks)
+    {
+        brickTicks--;
+
+        if (!brickTicks)
+        {
+            if (soundMode != SILENT && !noteGap)
+            {
+                SetTone(activeNotes[noteIndex]);
+            }
+            else
+            {
+                SilenceBuzzer();
+            }
+        }
+
+        return;
+    }
+
+    if (soundMode == SILENT)
     {
         return;
     }
 
-    if (ticksRemaining > 0)
+    if (ticksRemaining)
     {
         ticksRemaining--;
     }
 
-    if (ticksRemaining != 0)
+    if (ticksRemaining)
     {
         return;
     }
 
-    // Finish the Brick Beep
-
-    if (soundMode == 1)
-    {
-        SilenceBuzzer();
-        soundMode = 0;
-        return;
-    }
-
-    // Insert a Short Gap Between Melody Notes
-
-    if (noteGap == 0)
+    // Small gap between notes.
+    if (!noteGap)
     {
         SilenceBuzzer();
         noteGap = 1;
@@ -262,21 +331,23 @@ __interrupt void SoundTimer_ISR(void)
         return;
     }
 
-    // Start the Next Note
-
     noteIndex++;
 
-    if (noteIndex >= VICTORY_NOTE_COUNT)
+    if (noteIndex >= activeCount)
     {
-        SilenceBuzzer();
-        soundMode = 0;
-        return;
+        if (soundMode == LEVEL_MUSIC)
+        {
+            noteIndex = 0;
+        }
+        else
+        {
+            SilenceBuzzer();
+            soundMode = SILENT;
+            return;
+        }
     }
 
     noteGap = 0;
-    ticksRemaining = victoryDurations[noteIndex];
-
-    SetTone(victoryNotes[noteIndex]);
+    ticksRemaining = activeDurations[noteIndex];
+    SetTone(activeNotes[noteIndex]);
 }
-
-
