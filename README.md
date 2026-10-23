@@ -34,6 +34,8 @@ After a missed ball, press S1 to launch again. After winning or losing all lives
 - Three lives represented by dots below the play area
 - Short buzzer sound when a brick is hit
 - Simplified Ride of the Valkyries melody after a win
+- Background sound while game is playing
+- Multiple levels
 
 ## Project Files
 
